@@ -23,10 +23,10 @@ class BayesianModule(Module):
 
     # Returns B x n x output
     def forward(self, input_B: torch.Tensor, k: int):
-        BayesianModule.k = k
+        BayesianModule.k = k  # this is really weird - it defines a class attribute
 
-        mc_input_BK = BayesianModule.mc_tensor(input_B, k)
-        mc_output_BK = self.mc_forward_impl(mc_input_BK)
+        mc_input_BK = BayesianModule.mc_tensor(input_B, k)  # b, D --> b*K, D, where K is n ensemble
+        mc_output_BK = self.mc_forward_impl(mc_input_BK)  # calls the deterministic part defined on child class
         mc_output_B_K = BayesianModule.unflatten_tensor(mc_output_BK, k)
         return mc_output_B_K
 
@@ -79,16 +79,21 @@ class _ConsistentMCDropout(Module):
         mask = torch.empty(mask_shape, dtype=torch.bool, device=input.device).bernoulli_(self.p)
         return mask
 
-    def forward(self, input: torch.Tensor):
+    def forward(self, input: torch.Tensor, force_inconsistent=False):
+        """Careful construction of consistent mask in case we're in train mode or force_inconsistent is true
+        When being consistent we sample only K masks, where K is number MC dropout samples (ensemble size)
+        """
         if self.p == 0.0:
             return input
 
-        k = BayesianModule.k
-        if self.training:
+        if self.training or force_inconsistent:
             # Create a new mask on each call and for each batch element.
-            k = input.shape[0]
+            k = input.shape[0]  # B*K
             mask = self._create_mask(input, k)
         else:
+            # When being consistent we sample only K masks, where K is number MC dropout samples (ensemble size)
+            k = BayesianModule.k
+            # N.B. in this case k is ensemble size (via BayesianModule.k)
             if self.mask is None:
                 # print('recreating mask', self)
                 # Recreate mask.
@@ -96,8 +101,8 @@ class _ConsistentMCDropout(Module):
 
             mask = self.mask
 
-        mc_input = BayesianModule.unflatten_tensor(input, k)
-        mc_output = mc_input.masked_fill(mask, 0) / (1 - self.p)
+        mc_input = BayesianModule.unflatten_tensor(input, k)  # I think this might require k=1 during training.
+        mc_output = mc_input.masked_fill(mask, 0) / (1 - self.p)  # broadcast?
 
         # Flatten MCDI, batch into one dimension again.
         return BayesianModule.flatten_tensor(mc_output)
