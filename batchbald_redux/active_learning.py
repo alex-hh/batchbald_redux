@@ -82,9 +82,9 @@ class ActiveLearningData:
 # Cell
 
 
-def get_balanced_sample_indices(target_classes: List, num_classes, n_per_digit=2) -> List[int]:
+def get_balanced_sample_indices(target_classes: List, num_classes, n_per_digit=2, generator=None) -> List[int]:
     """Given `target_classes` randomly sample `n_per_digit` for each of the `num_classes` classes."""
-    permed_indices = torch.randperm(len(target_classes))
+    permed_indices = torch.randperm(len(target_classes), generator=generator)
 
     if n_per_digit == 0:
         return []
